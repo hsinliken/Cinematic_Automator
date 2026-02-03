@@ -25,6 +25,11 @@ export class GeminiService {
       每一幕需要包含：
       1. imagePrompt: 視覺構圖描述（請用英文，包含光影、鏡頭角度、質感）。
       2. dialogue: 角色台詞（請用繁體中文，語氣需符合台灣在地口語，富有情感）。
+      
+      【重要限制】：
+      - 每一幕的角色台詞（dialogue）長度必須精確控制在朗讀時間約 8 秒鐘左右。
+      - 字數請控制在 30 至 40 個中文字之間，不多也不少，以確保與影片演算時長完全同步。
+      
       請以 JSON 陣列格式回傳。`,
       config: {
         responseMimeType: "application/json",
