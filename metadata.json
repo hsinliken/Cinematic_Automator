@@ -1,8 +1,5 @@
 {
   "name": "AI Cinematic Automator",
-  "description": "An automated system to generate a series of consistent AI images and transform them into a cinematic video sequence using Gemini and Veo models.",
-  "requestFramePermissions": [
-    "camera",
-    "microphone"
-  ]
+  "description": "自動化電影製作系統，結合 Gemini 與 Veo 生成高品質影像、對白與配音。",
+  "requestFramePermissions": []
 }
