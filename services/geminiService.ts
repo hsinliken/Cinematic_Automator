@@ -8,65 +8,73 @@ export class GeminiService {
     this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
   }
 
-  // 確保每次呼叫都能獲取最新的環境變數
+  // 強化金鑰讀取，避免短暫的 undefined 導致崩潰
   private createClient() {
     const apiKey = process.env.API_KEY;
     if (!apiKey) {
-      throw new Error("API 金鑰尚未就緒。請確認您已在對話框中選擇金鑰，或稍候片刻讓系統同步。");
+      // 提供更友善的錯誤，而不是直接拋出讓 App 重新導向
+      console.warn("API Key 尚未就緒，嘗試等待環境注入...");
+      throw new Error("KEY_NOT_READY");
     }
     return new GoogleGenAI({ apiKey });
   }
 
   async planScript(theme: string, n: number): Promise<{imagePrompt: string, dialogue: string}[]> {
-    const ai = this.createClient();
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: `你是一位專業電影編導。請為主題 "${theme}" 規劃一個 ${n} 幕的短片。
-      每一幕需要包含：
-      1. imagePrompt: 視覺構圖描述（請用英文，包含光影、鏡頭角度、質感）。
-      2. dialogue: 角色台詞（請用繁體中文，語氣需符合台灣在地口語，富有情感）。
-      
-      【重要限制】：
-      - 每一幕的角色台詞（dialogue）長度必須配合「較快語速」下朗讀時間約 8 秒鐘。
-      - 字數請控制在 40 至 50 個中文字之間，以確保在語速加快後仍能填滿 8 秒的影片時長。
-      
-      請以 JSON 陣列格式回傳。`,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              imagePrompt: { type: Type.STRING },
-              dialogue: { type: Type.STRING }
-            },
-            required: ["imagePrompt", "dialogue"]
+    try {
+      const ai = this.createClient();
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: `你是一位專業電影編導。請為主題 "${theme}" 規劃一個 ${n} 幕的短片。
+        每一幕需要包含：
+        1. imagePrompt: 視覺構圖描述（請用英文，包含光影、鏡頭角度、質感）。
+        2. dialogue: 角色台詞（請用繁體中文，語氣需符合台灣在地口語，富有情感）。
+        
+        【劇本節奏控制】：
+        - 每一幕的時長固定為 8 秒。
+        - 由於語速會加快，台詞（dialogue）請控制在 45 至 55 個中文字。
+        - 內容要緊湊、資訊密度高，確保能填滿 8 秒的影片且不拖泥帶水。
+        
+        請以 JSON 陣列格式回傳。`,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                imagePrompt: { type: Type.STRING },
+                dialogue: { type: Type.STRING }
+              },
+              required: ["imagePrompt", "dialogue"]
+            }
           }
         }
-      }
-    });
-    return JSON.parse(response.text.trim());
+      });
+      return JSON.parse(response.text.trim());
+    } catch (e: any) {
+      if (e.message === "KEY_NOT_READY") throw new Error("系統正在初始化金鑰，請稍後再試一次。");
+      throw e;
+    }
   }
 
   async generateImage(prompt: string): Promise<string> {
     const ai = this.createClient();
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
-      contents: { parts: [{ text: `Cinematic cinematic lighting, 8k, professional photography: ${prompt}` }] },
+      contents: { parts: [{ text: `Cinematic 8k photo, ultra-realistic, cinematic lighting, highly detailed: ${prompt}` }] },
       config: { imageConfig: { aspectRatio: "16:9" } }
     });
     const part = response.candidates[0].content.parts.find(p => p.inlineData);
-    if (!part) throw new Error("場景影像生成失敗，請重試。");
+    if (!part) throw new Error("場景影像生成失敗。");
     return `data:image/png;base64,${part.inlineData.data}`;
   }
 
   async generateSpeech(text: string): Promise<AudioBuffer> {
     const ai = this.createClient();
-    // 透過 Prompt 強調「語速加快」
+    // 明確要求語速加快
     const prompt = `請以「台灣在地口語」且「充滿故事感染力」的情感語氣朗讀這段台詞。
-    【特別要求】：請使用「較快的語速」朗讀，節奏要緊湊、不拖泥帶水，確保語氣自然但效率高。
-    台詞內容：\n"${text}"`;
+    【語速要求】：請將語速加快（約 1.25 倍速），節奏明快、語氣急促但清晰，確保在 8 秒內講完。
+    台詞：\n"${text}"`;
     
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash-preview-tts",
@@ -107,7 +115,7 @@ export class GeminiService {
     const base64Data = imageBase64.split(',')[1];
     let operation = await ai.models.generateVideos({
       model: 'veo-3.1-fast-generate-preview',
-      prompt: `Cinematic motion, 8 seconds duration, professional camera movement, slow pan.`,
+      prompt: `Cinematic movie scene, 8 seconds duration, smooth camera motion, professional film look.`,
       image: { imageBytes: base64Data, mimeType: 'image/png' },
       config: { numberOfVideos: 1, resolution: '720p', aspectRatio: '16:9' }
     });
