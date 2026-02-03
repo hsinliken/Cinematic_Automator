@@ -8,11 +8,11 @@ export class GeminiService {
     this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
   }
 
-  // 每次調用時才實例化，確保獲取 process.env.API_KEY 的最新狀態
+  // 確保每次呼叫都能獲取最新的環境變數
   private createClient() {
     const apiKey = process.env.API_KEY;
     if (!apiKey) {
-      throw new Error("API 金鑰尚未就緒。請確認您已在對話框中選擇金鑰。");
+      throw new Error("API 金鑰尚未就緒。請確認您已在對話框中選擇金鑰，或稍候片刻讓系統同步。");
     }
     return new GoogleGenAI({ apiKey });
   }
@@ -27,8 +27,8 @@ export class GeminiService {
       2. dialogue: 角色台詞（請用繁體中文，語氣需符合台灣在地口語，富有情感）。
       
       【重要限制】：
-      - 每一幕的角色台詞（dialogue）長度必須精確控制在朗讀時間約 8 秒鐘左右。
-      - 字數請控制在 30 至 40 個中文字之間，不多也不少，以確保與影片演算時長完全同步。
+      - 每一幕的角色台詞（dialogue）長度必須配合「較快語速」下朗讀時間約 8 秒鐘。
+      - 字數請控制在 40 至 50 個中文字之間，以確保在語速加快後仍能填滿 8 秒的影片時長。
       
       請以 JSON 陣列格式回傳。`,
       config: {
@@ -63,7 +63,10 @@ export class GeminiService {
 
   async generateSpeech(text: string): Promise<AudioBuffer> {
     const ai = this.createClient();
-    const prompt = `請以「台灣在地口語」且「充滿故事感染力」的情感語氣朗讀這段台詞：\n"${text}"`;
+    // 透過 Prompt 強調「語速加快」
+    const prompt = `請以「台灣在地口語」且「充滿故事感染力」的情感語氣朗讀這段台詞。
+    【特別要求】：請使用「較快的語速」朗讀，節奏要緊湊、不拖泥帶水，確保語氣自然但效率高。
+    台詞內容：\n"${text}"`;
     
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash-preview-tts",
@@ -104,7 +107,7 @@ export class GeminiService {
     const base64Data = imageBase64.split(',')[1];
     let operation = await ai.models.generateVideos({
       model: 'veo-3.1-fast-generate-preview',
-      prompt: `Cinematic motion, high definition, professional camera movement.`,
+      prompt: `Cinematic motion, 8 seconds duration, professional camera movement, slow pan.`,
       image: { imageBytes: base64Data, mimeType: 'image/png' },
       config: { numberOfVideos: 1, resolution: '720p', aspectRatio: '16:9' }
     });
@@ -115,6 +118,7 @@ export class GeminiService {
     const link = operation.response?.generatedVideos?.[0]?.video?.uri;
     if (!link) throw new Error("影片演算失敗。");
     const res = await fetch(`${link}&key=${process.env.API_KEY}`);
-    return URL.createObjectURL(await res.blob());
+    const blob = await res.blob();
+    return URL.createObjectURL(blob);
   }
 }

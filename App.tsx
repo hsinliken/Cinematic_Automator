@@ -27,18 +27,15 @@ const App: React.FC = () => {
   useEffect(() => {
     const initKeyCheck = async () => {
       try {
-        // 安全性檢查 window.aistudio
         // @ts-ignore
         if (window.aistudio && typeof window.aistudio.hasSelectedApiKey === 'function') {
           // @ts-ignore
           const exists = await window.aistudio.hasSelectedApiKey();
           setHasKey(exists);
         } else {
-          // 若不在 aistudio 環境，檢查環境變數
           setHasKey(!!process.env.API_KEY);
         }
       } catch (e) {
-        console.error("金鑰檢查失敗:", e);
         setHasKey(!!process.env.API_KEY);
       } finally {
         setCheckingKey(false);
@@ -49,6 +46,13 @@ const App: React.FC = () => {
 
   const planProduction = async () => {
     if (!theme.trim()) return;
+    
+    // 強制檢查環境變數
+    if (!process.env.API_KEY) {
+      setHasKey(false);
+      return;
+    }
+
     setErrorMessage(null);
     setStatus(WorkflowStatus.PLANNING);
     setProgress(15);
@@ -68,9 +72,9 @@ const App: React.FC = () => {
       const msg = e.message || "";
       if (msg.includes("429")) {
         setErrorMessage("請求過於頻繁（429 錯誤），請稍候片刻再試。");
-      } else if (msg.includes("undefined") || msg.includes("key")) {
+      } else if (msg.includes("金鑰尚未就緒") || msg.includes("key")) {
         setHasKey(false);
-        setErrorMessage("API 金鑰無效或未配置。");
+        setErrorMessage("金鑰失效或尚未準備好，請重新選擇。");
       } else {
         setErrorMessage(`規劃失敗: ${msg}`);
       }
@@ -94,15 +98,12 @@ const App: React.FC = () => {
         
         setScenes(prev => prev.map((s, idx) => idx === i ? { ...s, status: 'processing' } : s));
         
-        // 1. 生成影像
         const img = await geminiService.current.generateImage(scenes[i].imagePrompt);
         setScenes(prev => prev.map((s, idx) => idx === i ? { ...s, imageUrl: img } : s));
         
-        // 2. 生成配音
         const audio = await geminiService.current.generateSpeech(scenes[i].dialogue);
         setScenes(prev => prev.map((s, idx) => idx === i ? { ...s, audioBuffer: audio } : s));
         
-        // 3. 生成影片
         const vid = await geminiService.current.generateVideo(img);
         
         setScenes(prev => prev.map((s, idx) => idx === i ? { 
@@ -114,7 +115,7 @@ const App: React.FC = () => {
         console.error(e);
         setScenes(prev => prev.map((s, idx) => idx === i ? { ...s, status: 'error' } : s));
         if (e.message?.includes("429")) {
-          setErrorMessage("API 配額已達上限（429）。影片製作暫停，請檢查帳單狀態或稍後重試。");
+          setErrorMessage("API 配額已達上限（429）。請稍候再試。");
           break;
         }
       }
@@ -125,6 +126,23 @@ const App: React.FC = () => {
       setCurrentIdx(0);
       setTimeout(() => playScene(0), 500);
     }
+  };
+
+  const downloadVideo = (url: string, filename: string) => {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
+  const downloadAll = () => {
+    scenes.forEach((scene, i) => {
+      if (scene.videoUrl) {
+        downloadVideo(scene.videoUrl, `scene-${i + 1}.mp4`);
+      }
+    });
   };
 
   const playScene = (index: number) => {
@@ -192,6 +210,12 @@ const App: React.FC = () => {
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
             <span>系統警報：{errorMessage}</span>
           </div>
+          <button 
+            onClick={() => { setErrorMessage(null); setHasKey(false); }}
+            className="mt-4 text-xs underline text-red-400/60 hover:text-red-400"
+          >
+            點擊此處重設金鑰
+          </button>
         </div>
       )}
 
@@ -226,7 +250,7 @@ const App: React.FC = () => {
           <div className="flex flex-col md:flex-row justify-between items-end gap-6 border-l-[12px] border-indigo-500 pl-10">
             <div className="space-y-2">
               <h2 className="text-5xl font-black tracking-tighter italic uppercase">劇本審閱室</h2>
-              <p className="text-gray-500 font-medium">請校閱視覺描述與對白，我們將根據您的調整進行數位拍攝。</p>
+              <p className="text-gray-500 font-medium">請校閱視覺描述與對白，每一幕將以 8 秒時長進行製作。</p>
             </div>
             <button onClick={startGeneration} className="w-full md:w-auto px-16 py-6 bg-emerald-600 rounded-3xl font-black text-xl hover:bg-emerald-500 shadow-2xl shadow-emerald-900/40 active:scale-95 transition-all">
               確認細節，開始演算
@@ -250,7 +274,7 @@ const App: React.FC = () => {
                 <div className="space-y-5">
                   <div className="flex items-center gap-3">
                     <span className="w-10 h-10 rounded-xl bg-pink-500/20 flex items-center justify-center text-xs font-black text-pink-400">音</span>
-                    <span className="text-xs font-black text-gray-400 tracking-[0.2em] uppercase">場景 {i+1} 角色台詞</span>
+                    <span className="text-xs font-black text-gray-400 tracking-[0.2em] uppercase">場景 {i+1} 角色台詞 (約 8 秒)</span>
                   </div>
                   <textarea 
                     value={s.dialogue}
@@ -266,12 +290,32 @@ const App: React.FC = () => {
 
       {(status === WorkflowStatus.GENERATING_ASSETS || status === WorkflowStatus.COMPLETED) && (
         <section className="space-y-16 animate-in zoom-in-95 duration-1000">
-          {status === WorkflowStatus.GENERATING_ASSETS && <ProgressBar progress={progress} label="製作中：正在演算影片、合成擬真對白語音並進行 AI 剪輯..." />}
+          {status === WorkflowStatus.GENERATING_ASSETS && <ProgressBar progress={progress} label="製作中：正在演算影片、合成快節奏對白並進行剪輯..." />}
           
           {scenes.some(s => s.videoUrl) && (
             <div className="space-y-10">
               <div className="flex justify-between items-end border-l-[12px] border-indigo-500 pl-10">
-                <h2 className="text-5xl font-black tracking-tighter uppercase italic">導演剪輯預覽</h2>
+                <div className="space-y-2">
+                  <h2 className="text-5xl font-black tracking-tighter uppercase italic">導演剪輯預覽</h2>
+                  <div className="flex gap-4">
+                    <button 
+                      onClick={() => scenes[currentIdx]?.videoUrl && downloadVideo(scenes[currentIdx].videoUrl!, `scene-${currentIdx+1}.mp4`)}
+                      className="text-[10px] font-black uppercase tracking-widest bg-white/10 hover:bg-white/20 px-4 py-2 rounded-full border border-white/10 transition-all flex items-center gap-2"
+                    >
+                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                      下載當前鏡頭
+                    </button>
+                    {status === WorkflowStatus.COMPLETED && (
+                      <button 
+                        onClick={downloadAll}
+                        className="text-[10px] font-black uppercase tracking-widest bg-indigo-600/80 hover:bg-indigo-600 px-4 py-2 rounded-full border border-indigo-500/30 transition-all flex items-center gap-2"
+                      >
+                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                        下載所有素材 (導出影片)
+                      </button>
+                    )}
+                  </div>
+                </div>
                 {status === WorkflowStatus.GENERATING_ASSETS && <div className="text-indigo-400 text-xs font-black animate-pulse tracking-widest uppercase bg-indigo-500/10 px-4 py-2 rounded-full border border-indigo-500/20">渲染中...</div>}
               </div>
 
@@ -291,9 +335,9 @@ const App: React.FC = () => {
                   className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-1000 ease-in-out ${activeLayer === 1 ? 'opacity-100' : 'opacity-0'}`}
                 />
                 
-                <div className="absolute inset-x-0 bottom-8 z-20 text-center pointer-events-none px-12">
-                  <div className="inline-block bg-black/40 backdrop-blur-sm px-4 py-1 rounded-md border border-white/10">
-                    <p className="text-[12px] font-medium text-white tracking-wider leading-relaxed drop-shadow-lg">
+                <div className="absolute inset-x-0 bottom-12 z-20 text-center pointer-events-none px-12">
+                  <div className="inline-block bg-black/60 backdrop-blur-md px-6 py-2 rounded-xl border border-white/10 shadow-2xl">
+                    <p className="text-[14px] font-bold text-white tracking-wider leading-relaxed">
                       {scenes[currentIdx]?.dialogue}
                     </p>
                   </div>
@@ -320,9 +364,14 @@ const App: React.FC = () => {
                 <div className="absolute inset-0 bg-gradient-to-t from-black/90 to-transparent flex flex-col justify-end p-6">
                   <span className="text-[10px] font-black uppercase tracking-widest text-indigo-400">SCENE {i+1}</span>
                   {s.status === 'processing' && <div className="absolute top-4 right-4 w-4 h-4 border-2 border-indigo-500 border-t-transparent animate-spin rounded-full" />}
-                  {s.status === 'error' && <div className="absolute top-4 right-4 text-red-500">
-                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" /></svg>
-                  </div>}
+                  {s.status === 'completed' && (
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); s.videoUrl && downloadVideo(s.videoUrl, `scene-${i+1}.mp4`); }}
+                      className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity bg-black/60 p-2 rounded-full hover:bg-indigo-500"
+                    >
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                    </button>
+                  )}
                 </div>
               </div>
             ))}
